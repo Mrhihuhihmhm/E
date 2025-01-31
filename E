@@ -1,0 +1,109 @@
+-- Universal CamLock Script (LocalScript)
+-- Place in StarterPlayerScripts or StarterGui
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local WS = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local camera = WS.CurrentCamera
+local camLock = false
+local target = nil
+local lastCamType = camera.CameraType
+
+-- Create status GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "CamLockUI"
+gui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 200, 0, 30)
+frame.Position = UDim2.new(0.5, -100, 0.05, 0)
+frame.BackgroundTransparency = 0.7
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+frame.BorderSizePixel = 0
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, 0, 1, 0)
+label.Text = "CAM LOCK: OFF"
+label.TextColor3 = Color3.new(1, 0, 0)
+label.Font = Enum.Font.SourceSansBold
+label.TextSize = 18
+label.BackgroundTransparency = 1
+label.Parent = frame
+
+frame.Parent = gui
+gui.Parent = player:WaitForChild("PlayerGui")
+
+-- Improved target finding function
+local function getTarget()
+    local character = player.Character
+    if not character then return end
+    
+    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+    if not root then return end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {character, camera}
+    
+    local mousePos = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+    local unitRay = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    local raycastResult = WS:Raycast(unitRay.Origin, unitRay.Direction * 1000, params)
+    
+    if raycastResult and raycastResult.Instance then
+        local hitChar = raycastResult.Instance:FindFirstAncestorOfClass("Model")
+        if hitChar and hitChar:FindFirstChildOfClass("Humanoid") then
+            return Players:GetPlayerFromCharacter(hitChar), hitChar
+        end
+    end
+end
+
+-- Toggle function
+local function toggleCamLock()
+    camLock = not camLock
+    if camLock then
+        local playerTarget, charTarget = getTarget()
+        if playerTarget and charTarget then
+            target = {Player = playerTarget, Character = charTarget}
+            lastCamType = camera.CameraType
+            camera.CameraType = Enum.CameraType.Scriptable
+            label.Text = "CAM LOCK: ON"
+            label.TextColor3 = Color3.new(0, 1, 0)
+        else
+            camLock = false
+        end
+    else
+        target = nil
+        camera.CameraType = lastCamType
+        label.Text = "CAM LOCK: OFF"
+        label.TextColor3 = Color3.new(1, 0, 0)
+    end
+end
+
+-- Keybind
+UIS.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Enum.KeyCode.Q then
+        toggleCamLock()
+    end
+end)
+
+-- Camera update loop
+RS.RenderStepped:Connect(function()
+    if camLock and target then
+        if target.Character and target.Character.Parent ~= nil then
+            local root = target.Character:FindFirstChild("HumanoidRootPart") or
+                         target.Character:FindFirstChild("Torso") or
+                         target.Character:FindFirstChild("UpperTorso")
+            
+            if root and camera.CFrame then
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
+            end
+        else
+            camLock = false
+            camera.CameraType = lastCamType
+            label.Text = "CAM LOCK: OFF"
+            label.TextColor3 = Color3.new(1, 0, 0)
+        end
+    end
+end)
