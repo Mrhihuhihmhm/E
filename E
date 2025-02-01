@@ -1,109 +1,196 @@
--- Universal CamLock Script (LocalScript)
--- Place in StarterPlayerScripts or StarterGui
+-- Configuration
+local ESP_SETTINGS = {
+    Keybind = "E",
+    DefaultVisible = true,
+    Tracers = true,
+    TracerWidth = 1,
+    NameSize = 18,
+    RefreshRate = 0.1
+}
+
+-- Services
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local RS = game:GetService("RunService")
-local WS = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
-local player = Players.LocalPlayer
-local camera = WS.CurrentCamera
-local camLock = false
-local target = nil
-local lastCamType = camera.CameraType
+-- Variables
+local localPlayer = Players.LocalPlayer
+local espCache = {}
+local gui
+local settingsFrame
 
--- Create status GUI
-local gui = Instance.new("ScreenGui")
-gui.Name = "CamLockUI"
-gui.ResetOnSpawn = false
+-- ESP Creation
+function createESP(character, player)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = player.Name
+    highlight.Adornee = character
+    highlight.Parent = character
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 200, 0, 30)
-frame.Position = UDim2.new(0.5, -100, 0.05, 0)
-frame.BackgroundTransparency = 0.7
-frame.BackgroundColor3 = Color3.new(0, 0, 0)
-frame.BorderSizePixel = 0
+    local tracer = Instance.new("Frame")
+    tracer.Visible = ESP_SETTINGS.Tracers
+    tracer.BackgroundColor3 = Color3.new(1, 1, 1)
+    tracer.BorderSizePixel = 0
+    tracer.Size = UDim2.new(0, ESP_SETTINGS.TracerWidth, 0, 0)
 
-local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 1, 0)
-label.Text = "CAM LOCK: OFF"
-label.TextColor3 = Color3.new(1, 0, 0)
-label.Font = Enum.Font.SourceSansBold
-label.TextSize = 18
-label.BackgroundTransparency = 1
-label.Parent = frame
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Text = player.Name
+    nameLabel.Size = UDim2.new(0, 0, 0, ESP_SETTINGS.NameSize)
+    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextStrokeTransparency = 0.5
 
-frame.Parent = gui
-gui.Parent = player:WaitForChild("PlayerGui")
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ESP_"..player.Name
+    gui.Parent = player.PlayerGui or localPlayer.PlayerGui
+    tracer.Parent = gui
+    nameLabel.Parent = gui
 
--- Improved target finding function
-local function getTarget()
-    local character = player.Character
-    if not character then return end
-    
-    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-    if not root then return end
-    
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Blacklist
-    params.FilterDescendantsInstances = {character, camera}
-    
-    local mousePos = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
-    local unitRay = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-    local raycastResult = WS:Raycast(unitRay.Origin, unitRay.Direction * 1000, params)
-    
-    if raycastResult and raycastResult.Instance then
-        local hitChar = raycastResult.Instance:FindFirstAncestorOfClass("Model")
-        if hitChar and hitChar:FindFirstChildOfClass("Humanoid") then
-            return Players:GetPlayerFromCharacter(hitChar), hitChar
-        end
-    end
+    espCache[player] = {
+        Character = character,
+        Highlight = highlight,
+        Tracer = tracer,
+        NameLabel = nameLabel,
+        GUI = gui
+    }
 end
 
--- Toggle function
-local function toggleCamLock()
-    camLock = not camLock
-    if camLock then
-        local playerTarget, charTarget = getTarget()
-        if playerTarget and charTarget then
-            target = {Player = playerTarget, Character = charTarget}
-            lastCamType = camera.CameraType
-            camera.CameraType = Enum.CameraType.Scriptable
-            label.Text = "CAM LOCK: ON"
-            label.TextColor3 = Color3.new(0, 1, 0)
-        else
-            camLock = false
-        end
-    else
-        target = nil
-        camera.CameraType = lastCamType
-        label.Text = "CAM LOCK: OFF"
-        label.TextColor3 = Color3.new(1, 0, 0)
-    end
-end
-
--- Keybind
-UIS.InputBegan:Connect(function(input, gp)
-    if not gp and input.KeyCode == Enum.KeyCode.Q then
-        toggleCamLock()
-    end
-end)
-
--- Camera update loop
-RS.RenderStepped:Connect(function()
-    if camLock and target then
-        if target.Character and target.Character.Parent ~= nil then
-            local root = target.Character:FindFirstChild("HumanoidRootPart") or
-                         target.Character:FindFirstChild("Torso") or
-                         target.Character:FindFirstChild("UpperTorso")
+-- ESP Update
+function updateESP()
+    for player, data in pairs(espCache) do
+        if player and data.Character and data.Character:FindFirstChild("HumanoidRootPart") then
+            local rootPart = data.Character.HumanoidRootPart
+            local screenPoint, onScreen = workspace.CurrentCamera:WorldToViewportPoint(rootPart.Position)
             
-            if root and camera.CFrame then
-                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, root.Position)
+            if onScreen then
+                -- Update tracer
+                local tracer = data.Tracer
+                tracer.Size = UDim2.new(0, ESP_SETTINGS.TracerWidth, 0, (screenPoint.Y - GuiService:GetScreenResolution().Y))
+                tracer.Position = UDim2.new(0, screenPoint.X, 0, screenPoint.Y)
+                
+                -- Update name label
+                data.NameLabel.Position = UDim2.new(0, screenPoint.X, 0, screenPoint.Y - 50)
+                data.NameLabel.Size = UDim2.new(0, 0, 0, ESP_SETTINGS.NameSize)
             end
-        else
-            camLock = false
-            camera.CameraType = lastCamType
-            label.Text = "CAM LOCK: OFF"
-            label.TextColor3 = Color3.new(1, 0, 0)
+            
+            data.GUI.Enabled = ESP_SETTINGS.DefaultVisible
+            data.Tracer.Visible = ESP_SETTINGS.Tracers
         end
     end
+end
+
+-- Player Handling
+function onPlayerAdded(player)
+    player.CharacterAdded:Connect(function(character)
+        createESP(character, player)
+    end)
+    if player.Character then
+        createESP(player.Character, player)
+    end
+end
+
+function onPlayerRemoving(player)
+    if espCache[player] then
+        espCache[player].Highlight:Destroy()
+        espCache[player].GUI:Destroy()
+        espCache[player] = nil
+    end
+end
+
+-- GUI Creation
+function createGUI()
+    gui = Instance.new("ScreenGui")
+    gui.Name = "ESP_Settings"
+    
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
+    toggleBtn.Position = UDim2.new(0.5, -25, 1, -60)
+    toggleBtn.Text = "ESP Settings"
+    toggleBtn.Parent = gui
+    
+    settingsFrame = Instance.new("Frame")
+    settingsFrame.Size = UDim2.new(0, 200, 0, 200)
+    settingsFrame.Position = UDim2.new(0.5, -100, 0.5, -100)
+    settingsFrame.Visible = false
+    settingsFrame.BackgroundTransparency = 0.5
+    settingsFrame.Parent = gui
+    
+    -- Add GUI controls here
+    local tracerToggle = Instance.new("TextButton")
+    tracerToggle.Text = "Tracers: "..tostring(ESP_SETTINGS.Tracers)
+    tracerToggle.Size = UDim2.new(0, 180, 0, 30)
+    tracerToggle.Position = UDim2.new(0, 10, 0, 10)
+    tracerToggle.Parent = settingsFrame
+    
+    local widthSlider = Instance.new("TextBox")
+    widthSlider.Text = "Width: "..ESP_SETTINGS.TracerWidth
+    widthSlider.Size = UDim2.new(0, 180, 0, 30)
+    widthSlider.Position = UDim2.new(0, 10, 0, 50)
+    widthSlider.Parent = settingsFrame
+    
+    local nameSizeSlider = Instance.new("TextBox")
+    nameSizeSlider.Text = "Name Size: "..ESP_SETTINGS.NameSize
+    nameSizeSlider.Size = UDim2.new(0, 180, 0, 30)
+    nameSizeSlider.Position = UDim2.new(0, 10, 0, 90)
+    nameSizeSlider.Parent = settingsFrame
+    
+    -- GUI Interactions
+    tracerToggle.MouseButton1Click:Connect(function()
+        ESP_SETTINGS.Tracers = not ESP_SETTINGS.Tracers
+        tracerToggle.Text = "Tracers: "..tostring(ESP_SETTINGS.Tracers)
+    end)
+    
+    widthSlider.FocusLost:Connect(function()
+        local newWidth = tonumber(widthSlider.Text:match("%d+"))
+        if newWidth then
+            ESP_SETTINGS.TracerWidth = newWidth
+            widthSlider.Text = "Width: "..newWidth
+        end
+    end)
+    
+    nameSizeSlider.FocusLost:Connect(function()
+        local newSize = tonumber(nameSizeSlider.Text:match("%d+"))
+        if newSize then
+            ESP_SETTINGS.NameSize = newSize
+            nameSizeSlider.Text = "Name Size: "..newSize
+        end
+    end)
+    
+    toggleBtn.MouseButton1Click:Connect(function()
+        settingsFrame.Visible = not settingsFrame.Visible
+    end)
+    
+    gui.Parent = localPlayer.PlayerGui
+end
+
+-- Input Handling
+function handleInput(input)
+    if input.KeyCode == Enum.KeyCode[ESP_SETTINGS.Keybind:upper()] then
+        ESP_SETTINGS.DefaultVisible = not ESP_SETTINGS.DefaultVisible
+    end
+end
+
+UserInputService.InputBegan:Connect(handleInput)
+
+-- Initialization
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= localPlayer then
+        onPlayerAdded(player)
+    end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+createGUI()
+
+RunService.RenderStepped:Connect(updateESP)
+
+-- Death Handling
+localPlayer.CharacterAdded:Connect(function()
+    createGUI()
 end)
